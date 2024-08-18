@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cu113
+numpy==1.23.5
+torch==2.0.1
+gradio
+yt-dlp
+transformers
+ffmpeg-python
+pyannote-audio==3.1.1
+spaces
+accelerate
