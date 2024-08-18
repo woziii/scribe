@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+body {
+    font-family: 'Roboto', sans-serif;
+}
+
+#root > .block {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.logo {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.logo img {
+    max-width: 200px;
+    border-radius: 10px;
+}
+
+/* Centrer le H1 */
+h1 {
+    text-align: center;
+}
+
+/* Arrondir légèrement les angles des éléments Gradio */
+.gr-form, .gr-box, .gr-input, .gr-textarea, .gr-radio, .gr-checkbox, .gr-panel {
+    border-radius: 6px;
+}
+
+.gr-panel > .label {
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+button, .button-primary, .button-secondary {
+    border-radius: 6px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    #root > .block {
+        padding: 15px;
+    }
+}
