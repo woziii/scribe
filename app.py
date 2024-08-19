@@ -49,10 +49,9 @@ pipe = pipeline(
 
 
 
-def associate_speakers_with_timestamps(transcription_result, diarization, tolerance=0.1, min_segment_duration=0.5):
+def associate_speakers_with_timestamps(transcription_result, diarization, tolerance=0.01, min_segment_duration=0.05):
     word_segments = transcription_result['chunks']
     diarization_segments = list(diarization.itertracks(yield_label=True))
-    
     speaker_transcription = []
     current_speaker = None
     current_text = []
@@ -62,51 +61,53 @@ def associate_speakers_with_timestamps(transcription_result, diarization, tolera
     def flush_current_segment():
         nonlocal current_speaker, current_text
         if current_speaker and current_text:
-            speaker_transcription.append((current_speaker, ' '.join(current_text)))
+            segment_duration = word_segments[-1]['timestamp'][1] - word_segments[0]['timestamp'][0]
+            if segment_duration >= min_segment_duration:
+                speaker_transcription.append((current_speaker, ' '.join(current_text)))
+            else:
+                unassigned_words.extend([(word['timestamp'][0], word['text']) for word in word_segments])
             current_text = []
 
     for word in word_segments:
         word_start, word_end = word['timestamp']
         word_text = word['text']
-        
         assigned = False
+
         for i in range(last_segment_index, len(diarization_segments)):
             segment, _, speaker = diarization_segments[i]
             if segment.start - tolerance <= word_start < segment.end + tolerance:
                 if speaker != current_speaker:
-                    if current_speaker and len(current_text) == 1 and len(current_text[0].split()) <= 2:
-                        # Si le segment précédent est très court, ne changez pas de locuteur
-                        current_text.append(word_text)
-                    else:
-                        flush_current_segment()
-                        current_speaker = speaker
+                    flush_current_segment()
+                    current_speaker = speaker
                 current_text.append(word_text)
                 last_segment_index = i
                 assigned = True
                 break
-        
+
         if not assigned:
             unassigned_words.append((word_start, word_text))
-    
+
+    flush_current_segment()
+
     # Traitement des mots non assignés
+    unassigned_words.sort(key=lambda x: x[0])  # Trier par timestamp
     for word_start, word_text in unassigned_words:
-        closest_segment = min(diarization_segments, key=lambda x: abs(x[0].start - word_start))
+        closest_segment = min(diarization_segments, key=lambda x: min(abs(x[0].start - word_start), abs(x[0].end - word_start)))
         speaker = closest_segment[2]
         if speaker != current_speaker:
             flush_current_segment()
             current_speaker = speaker
         current_text.append(word_text)
-    
     flush_current_segment()
-    
+
     # Fusion des segments courts
     merged_transcription = []
     for speaker, text in speaker_transcription:
-        if not merged_transcription or merged_transcription[-1][0] != speaker or len(text.split()) > 3:
+        if not merged_transcription or merged_transcription[-1][0] != speaker:
             merged_transcription.append((speaker, text))
         else:
             merged_transcription[-1] = (speaker, merged_transcription[-1][1] + " " + text)
-    
+
     return merged_transcription
     
 def simplify_diarization_output(speaker_transcription):
@@ -314,7 +315,8 @@ demo = gr.Blocks(
 
 
 with demo:
-    gr.Markdown("# 🎙️ **Scribe** : L'assistant de Transcription Audio Intelligent 📝 ⚠️ Cette version est une maquette publique. Ne pas mettre de données sensibles, privées ou confidentielles.")
+    gr.Markdown("""# 🎙️ **Scribe** : L'assistant de Transcription Audio Intelligent 📝 
+    ### ⚠️ Cette version est une maquette publique. Ne pas mettre de données sensibles, privées ou confidentielles. ⚠️""")
     gr.HTML(
         """
         <div class="logo">
@@ -339,11 +341,6 @@ with demo:
        - Utilise des techniques d'apprentissage profond pour l'extraction de caractéristiques vocales
        - Applique un algorithme de clustering pour regrouper les segments par locuteur
 
-    Le processus complet implique :
-    a) Prétraitement de l'audio
-    b) Transcription du contenu
-    c) Segmentation et identification des locuteurs
-    d) Fusion des résultats pour une sortie structurée
 
 
     ### 💡 **Conseils pour de Meilleurs Résultats**
@@ -351,6 +348,13 @@ with demo:
     - Pour les longs enregistrements, il est recommandé de segmenter votre audio.
     - Vérifiez toujours la transcription, en particulier pour les termes techniques ou les noms propres.
     - Utilisez des microphones externes pour les enregistrements en direct si possible.
+
+    ### ⚙️ Spécifications Techniques :
+    - Modèle de transcription : Whisper Medium
+    - Pipeline de diarisation : pyannote/speaker-diarization-3.1
+    - Limite de taille de fichier : _(Nous n'avons, à ce jour, pas de limite précise. Cependant, **nous vous recommandons de ne pas dépasser 5 minutes.** )_
+    - Durée maximale pour les vidéos YouTube : _(Nous n'avons, à ce jour, pas de limite précise. Cependant, pour une utilisation optimale, l'audio ne doit pas dépasser 30 minutes. )_
+    - Formats audio supportés : MP3, WAV, M4A, et plus
     """)
     with gr.Accordion("🔐 Sécurité des Données et Pipelines", open=False):
         gr.Markdown("""
@@ -452,12 +456,6 @@ with demo:
     - Traitement de fichiers audio, enregistrements en direct et vidéos YouTube
     - Gestion de divers formats audio et qualités d'enregistrement
 
-    ### ⚙️ Spécifications Techniques :
-    - Modèle de transcription : Whisper Medium
-    - Pipeline de diarisation : pyannote/speaker-diarization-3.1
-    - Limite de taille de fichier : _(Nous n'avons, à ce jour, pas de limite précise. Cependant, nous vous recommandons de ne pas dépasser 6 minutes. )_
-    - Durée maximale pour les vidéos YouTube : _(Nous n'avons, à ce jour, pas de limite précise. Cependant, pour une utilisation optimale, l'audio ne doit pas dépasser 30 minutes. )_
-    - Formats audio supportés : MP3, WAV, M4A, et plus
     """)
         
     with gr.Accordion("❓ README :", open=False):
