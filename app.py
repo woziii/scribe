@@ -49,61 +49,58 @@ pipe = pipeline(
 
 
 
-def associate_speakers_with_timestamps(transcription_result, diarization, tolerance=0.01, min_segment_duration=0.05):
+def associate_speakers_with_timestamps(transcription_result, diarization, tolerance=0.02, min_segment_duration=0.05):
     word_segments = transcription_result['chunks']
     diarization_segments = list(diarization.itertracks(yield_label=True))
     speaker_transcription = []
     current_speaker = None
     current_text = []
-    unassigned_words = []
-    last_segment_index = 0
+    last_word_end = 0
 
     def flush_current_segment():
         nonlocal current_speaker, current_text
         if current_speaker and current_text:
-            segment_duration = word_segments[-1]['timestamp'][1] - word_segments[0]['timestamp'][0]
-            if segment_duration >= min_segment_duration:
-                speaker_transcription.append((current_speaker, ' '.join(current_text)))
-            else:
-                unassigned_words.extend([(word['timestamp'][0], word['text']) for word in word_segments])
+            speaker_transcription.append((current_speaker, ' '.join(current_text)))
             current_text = []
 
     for word in word_segments:
         word_start, word_end = word['timestamp']
         word_text = word['text']
-        assigned = False
 
-        for i in range(last_segment_index, len(diarization_segments)):
-            segment, _, speaker = diarization_segments[i]
+        # Trouver le segment de diarisation correspondant
+        matching_segment = None
+        for segment, _, speaker in diarization_segments:
             if segment.start - tolerance <= word_start < segment.end + tolerance:
-                if speaker != current_speaker:
-                    flush_current_segment()
-                    current_speaker = speaker
-                current_text.append(word_text)
-                last_segment_index = i
-                assigned = True
+                matching_segment = (segment, speaker)
                 break
 
-        if not assigned:
-            unassigned_words.append((word_start, word_text))
+        if matching_segment:
+            segment, speaker = matching_segment
+            if speaker != current_speaker:
+                flush_current_segment()
+                current_speaker = speaker
+
+            # Gérer les pauses longues
+            if word_start - last_word_end > 1.0:  # Pause de plus d'une seconde
+                flush_current_segment()
+
+            current_text.append(word_text)
+            last_word_end = word_end
+        else:
+            # Si aucun segment ne correspond, attribuer au dernier locuteur connu
+            if current_speaker:
+                current_text.append(word_text)
+            else:
+                # Si c'est le premier mot sans correspondance, créer un nouveau segment
+                current_speaker = "SPEAKER_UNKNOWN"
+                current_text.append(word_text)
 
     flush_current_segment()
 
-    # Traitement des mots non assignés
-    unassigned_words.sort(key=lambda x: x[0])  # Trier par timestamp
-    for word_start, word_text in unassigned_words:
-        closest_segment = min(diarization_segments, key=lambda x: min(abs(x[0].start - word_start), abs(x[0].end - word_start)))
-        speaker = closest_segment[2]
-        if speaker != current_speaker:
-            flush_current_segment()
-            current_speaker = speaker
-        current_text.append(word_text)
-    flush_current_segment()
-
-    # Fusion des segments courts
+    # Fusionner les segments courts du même locuteur
     merged_transcription = []
     for speaker, text in speaker_transcription:
-        if not merged_transcription or merged_transcription[-1][0] != speaker:
+        if not merged_transcription or merged_transcription[-1][0] != speaker or len(text.split()) > 3:
             merged_transcription.append((speaker, text))
         else:
             merged_transcription[-1] = (speaker, merged_transcription[-1][1] + " " + text)
