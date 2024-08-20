@@ -47,65 +47,37 @@ pipe = pipeline(
 )
 
 
-
-
-def associate_speakers_with_timestamps(transcription_result, diarization, tolerance=0.02, min_segment_duration=0.05):
+def associate_speakers_with_timestamps(transcription_result, diarization):
     word_segments = transcription_result['chunks']
     diarization_segments = list(diarization.itertracks(yield_label=True))
     speaker_transcription = []
-    current_speaker = None
-    current_text = []
-    last_word_end = 0
-
-    def flush_current_segment():
-        nonlocal current_speaker, current_text
-        if current_speaker and current_text:
-            speaker_transcription.append((current_speaker, ' '.join(current_text)))
-            current_text = []
+    current_segment_index = 0
+    previous_speaker = None
 
     for word in word_segments:
         word_start, word_end = word['timestamp']
-        word_text = word['text']
 
-        # Trouver le segment de diarisation correspondant
-        matching_segment = None
-        for segment, _, speaker in diarization_segments:
-            if segment.start - tolerance <= word_start < segment.end + tolerance:
-                matching_segment = (segment, speaker)
-                break
+        while current_segment_index < len(diarization_segments) - 1 and diarization_segments[current_segment_index][0].end <= word_start:
+            current_segment_index += 1
 
-        if matching_segment:
-            segment, speaker = matching_segment
-            if speaker != current_speaker:
-                flush_current_segment()
-                current_speaker = speaker
+        current_segment, _, current_speaker = diarization_segments[current_segment_index]
 
-            # Gérer les pauses longues
-            if word_start - last_word_end > 1.0:  # Pause de plus d'une seconde
-                flush_current_segment()
-
-            current_text.append(word_text)
-            last_word_end = word_end
-        else:
-            # Si aucun segment ne correspond, attribuer au dernier locuteur connu
-            if current_speaker:
-                current_text.append(word_text)
+        # Vérifier s'il y a un chevauchement avec le segment précédent
+        if current_segment_index > 0:
+            previous_segment, _, previous_speaker = diarization_segments[current_segment_index - 1]
+            if previous_segment.end > word_start and previous_speaker != current_speaker:
+                word_text = f"[{word['text']}]"
             else:
-                # Si c'est le premier mot sans correspondance, créer un nouveau segment
-                current_speaker = "SPEAKER_UNKNOWN"
-                current_text.append(word_text)
-
-    flush_current_segment()
-
-    # Fusionner les segments courts du même locuteur
-    merged_transcription = []
-    for speaker, text in speaker_transcription:
-        if not merged_transcription or merged_transcription[-1][0] != speaker or len(text.split()) > 3:
-            merged_transcription.append((speaker, text))
+                word_text = word['text']
         else:
-            merged_transcription[-1] = (speaker, merged_transcription[-1][1] + " " + text)
+            word_text = word['text']
 
-    return merged_transcription
+        if not speaker_transcription or speaker_transcription[-1][0] != current_speaker:
+            speaker_transcription.append((current_speaker, word_text))
+        else:
+            speaker_transcription[-1] = (current_speaker, speaker_transcription[-1][1] + " " + word_text)
+
+    return speaker_transcription
     
 def simplify_diarization_output(speaker_transcription):
     simplified = []
@@ -461,7 +433,7 @@ with demo:
     - Modèles :
         - [Whisper-médium](https://huggingface.co/openai/whisper-medium) : Model size - 764M params - Tensor type F32 -
         - [speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) : Model size - Unknow - Tensor type F32 -
-    - Version : V.2.0.0-Bêta
+    - Version : V.2.0.3-Bêta
     - Langues : FR, EN
     - Copyright : cc-by-nc-4.0
     - [En savoir +](https://huggingface.co/spaces/Woziii/scribe/blob/main/README.md)
